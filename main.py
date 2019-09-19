@@ -20,14 +20,16 @@ LR_G = 2e-4
 LR_D = 2e-4
 EPOCHS = 50
 
-MODEL_NUM_G = 1
-MODEL_NUM_D = 1
+MODEL_NUM_G = 4
+MODEL_NUM_D = 4
 SAVE_EVERY = 100
 
 DISCRIMINATE_EVERY = 4
 GENERATE_EVERY = 4
 CALCULATE_LOSS_EVERY = 8
 PRETRAINED = True
+
+GEN_NUM = 2
 
 def train():
     device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
@@ -59,15 +61,15 @@ def train():
     true_labels = torch.ones(BATCH_SIZE).to(device)
     fake_labels = torch.zeros(BATCH_SIZE).to(device)
 
-    max_epoch = 0
+    max_epoch_G, max_epoch_D = 0, 0
     # Load pretrained network with greatest number of training epochs
     pretrained_root_g = MODEL_SAVE_PATH+'G/'
     if PRETRAINED and os.path.exists(pretrained_root_g):
         file_list = [file for file in os.listdir(pretrained_root_g) if file.endswith('.pth')]
         if file_list != []:
             index_list = [int(file.split('.pth')[0].split('_')[2]) for file in file_list]
-            max_epoch = max(index_list)
-            model_name = 'model_g_%s.pth'%max_epoch
+            max_epoch_G = max(index_list)
+            model_name = 'model_g_%s.pth'%max_epoch_G
             print('Using mode:', model_name)
             netG.load_state_dict(torch.load(pretrained_root_g+model_name))
         else:
@@ -78,7 +80,8 @@ def train():
         file_list = [file for file in os.listdir(pretrained_root_d) if file.endswith('.pth')]
         if file_list != []:
             index_list = [int(file.split('.pth')[0].split('_')[2]) for file in file_list]
-            model_name = 'model_d_%s.pth'%max_epoch
+            max_epoch_D = max(index_list)
+            model_name = 'model_d_%s.pth'%max_epoch_D 
             print('Using mode:', model_name)
             netD.load_state_dict(torch.load(pretrained_root_d+model_name))
         else:
@@ -86,19 +89,22 @@ def train():
     
     plt.ion()
 
+    plot_index = 0
+
     for epoch in range(EPOCHS):
         
         loss, loss_list = 0, []
         plt.cla()
         for step, (img, _) in enumerate(dataloader):
             # Skip former steps if using pretrained models
-            if PRETRAINED and step < max_epoch:
-                continue
-            print('Epoch:',epoch,'| Step:',step)
+            
             real_img = img.to(device)
+            if step <= max_epoch_G and step <= max_epoch_D:
+                continue
 
             # Train generator
-            if step % GENERATE_EVERY == 0:
+            if step % GENERATE_EVERY == 0 and step > max_epoch_G:
+                print('G - Epoch:',epoch,'| Step:',step)
                 optimizer_G.zero_grad()
                 noises.data.copy_(torch.randn(BATCH_SIZE, DIM_NOISE, 1, 1)) # TODO: Why not noises=(torch.randn(BATCH_SIZE, DIM_NOISE, 1, 1))
                 fake_img = netG(noises)
@@ -108,8 +114,9 @@ def train():
                 optimizer_G.step()
                 loss += loss_g
             
-            if step % DISCRIMINATE_EVERY == 0:
+            if step % DISCRIMINATE_EVERY == 0 and step > max_epoch_D:
                 # Identify real images
+                print('D - Epoch:',epoch,'| Step:',step)
                 output_d = netD(real_img)
                 loss_real = criterion(output_d, true_labels)
                 loss_real.backward()
@@ -126,16 +133,22 @@ def train():
                 loss += loss_real + loss_fake
                 #fake_img = fake_img.detach()
 
-            if (step+1) % CALCULATE_LOSS_EVERY == 0:
+            # Skip step == 1
+            if step and step % CALCULATE_LOSS_EVERY == 0:
+                plot_index += 1
                 avg_loss = loss.data.numpy()/CALCULATE_LOSS_EVERY
-                print('Loss:', avg_loss)
+                print(avg_loss)
+                print("=====")
+                print('Epoch:',epoch,'| Step:',step,'Loss:', avg_loss)
+                print("=====")
                 loss_list.append(avg_loss)
                 loss = 0
-                plt.ylim((1,3))
-                plt.plot(range(int(step/CALCULATE_LOSS_EVERY)+1), loss_list, 'r-')
+                plt.ylim((0,0.6))# TODO: how to fit?
+                plt.plot(range(plot_index), loss_list, 'r-')
                 plt.draw()
                 plt.pause(0.01)
-            if (step+1) % SAVE_EVERY == 0:
+            # Skip step == 1
+            if step and step % SAVE_EVERY == 0:
                 torch.save(netG.state_dict(), MODEL_SAVE_PATH+'G/model_g_%s.pth'%step)
                 torch.save(netD.state_dict(), MODEL_SAVE_PATH+'D/model_d_%s.pth'%step)
 
@@ -146,8 +159,8 @@ def train():
 def generate():
     device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
-    noises = torch.randn(BATCH_SIZE, DIM_NOISE, 1, 1).to(device)
-    netG, netD = G(DIM_NOISE, DIM_G).eval(), D(DIM_D).normal_(0, 1)
+    noises = torch.randn(BATCH_SIZE, DIM_NOISE, 1, 1).normal_(0, 1).to(device)
+    netG, netD = G(DIM_NOISE, DIM_G).eval(), D(DIM_D).eval()
 
     netG.load_state_dict(torch.load(MODEL_SAVE_PATH+'G/model_g_%s.pth'%MODEL_NUM_G))
     netD.load_state_dict(torch.load(MODEL_SAVE_PATH+'D/model_d_%s.pth'%MODEL_NUM_D))
@@ -155,11 +168,11 @@ def generate():
     fake_img = netG(noises)
     scores = netD(fake_img).detach()
 
-    indexes = scores.topk(opt.gen_num)[1]
+    indexes = scores.topk(GEN_NUM)[1]
     results = []
     for i in indexes:
         results.append(fake_img.data[i])
-    tv.utils.save_image(torch.stack(results), normalize=True, range=(-1, 1))
+    tv.utils.save_image(torch.stack(results), "result.png",  normalize=True, range=(-1, 1))
 
 '''
 def load_model(net, model_path, mode):
@@ -194,4 +207,6 @@ def load_model(net, model_path, mode):
 
 
 if __name__ == "__main__":
-    train()
+
+    # train()
+    generate()
