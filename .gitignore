@@ -1,0 +1,8 @@
+*.pth
+*.pyc
+*.jpg
+*.jpeg
+*.DS_Store
+# Kaggle Config
+export KAGGLE_USERNAME=datadinosaur
+export KAGGLE_KEY=xxxxxxxxxxxxxx
