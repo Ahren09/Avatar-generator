@@ -27,7 +27,7 @@ EPOCHS = 1000
 MODEL_NUM_G = 4
 MODEL_NUM_D = 4
 PLOT_EVERY = 32
-SAVE_EVERY = 10
+SAVE_EVERY = 20
 
 DISCRIMINATE_EVERY = 4
 GENERATE_EVERY = 4
@@ -101,8 +101,6 @@ def train():
 
     for epoch in range(EPOCHS):
         time_start = time.time()
-        loss, loss_list = 0, []
-        plt.cla()
         for step, (img, _) in enumerate(dataloader):
             # Skip former steps if using pretrained models
             
@@ -120,7 +118,7 @@ def train():
                 loss_g = criterion(output_g, true_labels)
                 loss_g.backward()
                 optimizer_G.step()
-                loss += loss_g
+                errorg_meter.add(loss_g.item())
             
             if step % DISCRIMINATE_EVERY == 0 and step > max_epoch_D:
                 # Identify real images
