@@ -8,9 +8,13 @@ from torch.utils import data
 import matplotlib.pyplot as plt
 import tqdm
 from model import G, D
+import time
+
+from utils import Visualizer
+from torchnet.meter import AverageValueMeter
 
 IMG_SIZE = 96
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 DATA_PATH = 'data/' # Relative path can be applied here
 MODEL_SAVE_PATH = 'models/'
 DIM_NOISE = 100
@@ -18,16 +22,18 @@ DIM_D = 64
 DIM_G = 64
 LR_G = 2e-4
 LR_D = 2e-4
-EPOCHS = 50
+EPOCHS = 1000
 
 MODEL_NUM_G = 4
 MODEL_NUM_D = 4
-SAVE_EVERY = 100
+PLOT_EVERY = 32
+SAVE_EVERY = 10
 
 DISCRIMINATE_EVERY = 4
 GENERATE_EVERY = 4
 CALCULATE_LOSS_EVERY = 8
 PRETRAINED = True
+env = 'GAN'
 
 GEN_NUM = 2
 
@@ -40,6 +46,8 @@ def train():
         tv.transforms.ToTensor(),
         tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
+
+    vis = Visualizer(env)
 
     # drop_last: retain data that cannot suffice a batch
     dataset = tv.datasets.ImageFolder(DATA_PATH, transforms)
@@ -54,8 +62,12 @@ def train():
     optimizer_G = torch.optim.Adam(netG.parameters(), lr=LR_G, betas=(0.5, 0.999))
     optimizer_D = torch.optim.Adam(netG.parameters(), lr=LR_D, betas=(0.5, 0.999))
     criterion = nn.BCELoss().to(device)
+    
 
     noises = torch.randn(BATCH_SIZE, DIM_NOISE, 1, 1).to(device)
+
+    errord_meter = AverageValueMeter()
+    errorg_meter = AverageValueMeter()
 
     # Real imgs have 0 loss; fake imgs have 1
     true_labels = torch.ones(BATCH_SIZE).to(device)
@@ -86,13 +98,9 @@ def train():
             netD.load_state_dict(torch.load(pretrained_root_d+model_name))
         else:
             print('Discriminator train from Epoch 0')
-    
-    plt.ion()
-
-    plot_index = 0
 
     for epoch in range(EPOCHS):
-        
+        time_start = time.time()
         loss, loss_list = 0, []
         plt.cla()
         for step, (img, _) in enumerate(dataloader):
@@ -130,30 +138,28 @@ def train():
                 loss_fake.backward()
                 optimizer_D.step()
 
-                loss += loss_real + loss_fake
+                loss_d = loss_real + loss_fake
+                errord_meter.add(loss_d.item())
                 #fake_img = fake_img.detach()
+            
+            if (step+1) % PLOT_EVERY:
+                fix_fake_imgs = netG(noises)
+                vis.images(fix_fake_imgs.detach().cpu().numpy()[:64] * 0.5 + 0.5, win='fixfake')
+                vis.images(real_img.data.cpu().numpy()[:64] * 0.5 + 0.5, win='real')
+                vis.plot('errord', errord_meter.value()[0])
+                vis.plot('errorg', errorg_meter.value()[0])
 
-            # Skip step == 1
-            if step and step % CALCULATE_LOSS_EVERY == 0:
-                plot_index += 1
-                avg_loss = loss.data.numpy()/CALCULATE_LOSS_EVERY
-                print(avg_loss)
-                print("=====")
-                print('Epoch:',epoch,'| Step:',step,'Loss:', avg_loss)
-                print("=====")
-                loss_list.append(avg_loss)
-                loss = 0
-                plt.ylim((0,0.6))# TODO: how to fit?
-                plt.plot(range(plot_index), loss_list, 'r-')
-                plt.draw()
-                plt.pause(0.01)
-            # Skip step == 1
-            if step and step % SAVE_EVERY == 0:
-                torch.save(netG.state_dict(), MODEL_SAVE_PATH+'G/model_g_%s.pth'%step)
-                torch.save(netD.state_dict(), MODEL_SAVE_PATH+'D/model_d_%s.pth'%step)
+
 
             
-        
+            
+        time_end = time.time()
+        print('Total time for epoch ',epoch,' is ',(time_end-time_start))
+        if epoch and epoch % SAVE_EVERY == 0:
+            torch.save(netG.state_dict(), MODEL_SAVE_PATH+'G/model_g_%s.pth'%step)
+            torch.save(netD.state_dict(), MODEL_SAVE_PATH+'D/model_d_%s.pth'%step)
+            errord_meter.reset()
+            errorg_meter.reset()
          
 
 def generate():
@@ -164,6 +170,9 @@ def generate():
 
     netG.load_state_dict(torch.load(MODEL_SAVE_PATH+'G/model_g_%s.pth'%MODEL_NUM_G))
     netD.load_state_dict(torch.load(MODEL_SAVE_PATH+'D/model_d_%s.pth'%MODEL_NUM_D))
+
+    netG.to(device)
+    netD.to(device)
 
     fake_img = netG(noises)
     scores = netD(fake_img).detach()
@@ -208,5 +217,5 @@ def load_model(net, model_path, mode):
 
 if __name__ == "__main__":
 
-    # train()
-    generate()
+    train()
+#generate()
