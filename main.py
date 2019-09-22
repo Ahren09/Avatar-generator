@@ -36,6 +36,13 @@ PRETRAINED = True
 env = 'GAN'
 
 GEN_NUM = 2
+GEN_MEAN = 0
+GEN_STD = 1
+GEN_SEARCH_NUM = 512
+
+netd_path = 'models/D/model_d_199.pth'
+netg_path = 'models/G/model_g_199.pth'
+
 
 def train():
     device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
@@ -84,6 +91,7 @@ def train():
             model_name = 'model_g_%s.pth'%max_epoch_G
             print('Using mode:', model_name)
             netG.load_state_dict(torch.load(pretrained_root_g+model_name))
+            netG.to(device)
         else:
             print('Generator train from Step 0')
 
@@ -96,6 +104,7 @@ def train():
             model_name = 'model_d_%s.pth'%max_epoch_D 
             print('Using mode:', model_name)
             netD.load_state_dict(torch.load(pretrained_root_d+model_name))
+            netD.to(device)
         else:
             print('Discriminator train from Epoch 0')
 
@@ -161,25 +170,33 @@ def train():
          
 
 def generate():
-    device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
+    
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    noises = torch.randn(BATCH_SIZE, DIM_NOISE, 1, 1).normal_(0, 1).to(device)
-    netG, netD = G(DIM_NOISE, DIM_G).eval(), D(DIM_D).eval()
+    netg, netd = G(DIM_NOISE, DIM_G).eval(), D(DIM_D).eval()
+    noises = torch.randn(GEN_SEARCH_NUM, DIM_NOISE, 1, 1).normal_(GEN_MEAN, GEN_STD)
+    noises = noises.to(device)
 
-    netG.load_state_dict(torch.load(MODEL_SAVE_PATH+'G/model_g_%s.pth'%MODEL_NUM_G))
-    netD.load_state_dict(torch.load(MODEL_SAVE_PATH+'D/model_d_%s.pth'%MODEL_NUM_D))
+    map_location = lambda storage, loc: storage
+    netd.load_state_dict(torch.load(netd_path, map_location=map_location))
+    netg.load_state_dict(torch.load(netg_path, map_location=map_location))
+    netd.to(device)
+    netg.to(device)
 
-    netG.to(device)
-    netD.to(device)
 
-    fake_img = netG(noises)
-    scores = netD(fake_img).detach()
+    fake_img = netg(noises)
+    scores = netd(fake_img).detach()
 
-    indexes = scores.topk(GEN_NUM)[1]
-    results = []
-    for i in indexes:
-        results.append(fake_img.data[i])
-    tv.utils.save_image(torch.stack(results), "result.png",  normalize=True, range=(-1, 1))
+    # 挑选最好的某几张
+    indexs = scores.topk(GEN_NUM)[1]
+    result = []
+    for ii in indexs:
+        result.append(fake_img.data[ii])
+    # 保存图片
+    tv.utils.save_image(torch.stack(result), "result.png", normalize=True, range=(-1, 1))
+
+    print('Successfully generate avatars')
+
 
 '''
 def load_model(net, model_path, mode):
@@ -215,5 +232,5 @@ def load_model(net, model_path, mode):
 
 if __name__ == "__main__":
 
-    train()
-#generate()
+    # train()
+    generate()

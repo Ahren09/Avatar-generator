@@ -10,6 +10,9 @@ class Visualizer():
 
     def __init__(self, env='main', **kwargs):
         self.vis = visdom.Visdom(env=env, use_incoming_socket=False, **kwargs)
+        '''
+        run `python -m visdom.server` before run in terminal
+        '''
 
         # Define x-axis
         self.index = {}
